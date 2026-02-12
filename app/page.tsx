@@ -55,7 +55,7 @@ export default function Home() {
           event: '*',
           schema: 'public',
           table: 'bookmarks',
-          // FILTER IS BACK: Now that you ran the SQL command, this works for DELETEs too!
+          
           filter: `user_id=eq.${user.id}`, 
         },
         (payload) => {
@@ -66,7 +66,7 @@ export default function Home() {
               return [newBookmark, ...prev]
             })
           } else if (payload.eventType === 'DELETE') {
-            // payload.old will now contain the ID correctly
+            
             setBookmarks((prev) => prev.filter((b) => b.id !== payload.old.id))
           }
         }
@@ -107,7 +107,7 @@ export default function Home() {
   }
 
   const handleDelete = async (id: string) => {
-    // Optimistic UI update
+  
     setBookmarks((prev) => prev.filter((b) => b.id !== id))
     await supabase.from('bookmarks').delete().eq('id', id)
   }
