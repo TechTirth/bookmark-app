@@ -22,26 +22,51 @@ export default function Home() {
   const supabase = createClient()
   const router = useRouter()
 
+  // 1. Fetch User & Initial Data
   useEffect(() => {
-    // 1. Get initial User
-    const getUser = async () => {
+    const getUserAndBookmarks = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-      if (user) fetchBookmarks(user.id)
+      if (user) {
+        setUser(user)
+        const { data } = await supabase
+          .from('bookmarks')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+        
+        if (data) setBookmarks(data)
+      } else {
+        router.push('/login')
+      }
+      setLoading(false)
     }
-    getUser()
+    getUserAndBookmarks()
+  }, [])
 
-    // 2. Setup Realtime Subscription
-    // This allows updates across tabs instantly
+  // 2. Setup Realtime Subscription
+  useEffect(() => {
+    if (!user) return
+
     const channel = supabase
       .channel('realtime-bookmarks')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'bookmarks' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bookmarks',
+          // FILTER IS BACK: Now that you ran the SQL command, this works for DELETEs too!
+          filter: `user_id=eq.${user.id}`, 
+        },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setBookmarks((prev) => [payload.new as Bookmark, ...prev])
+            const newBookmark = payload.new as Bookmark
+            setBookmarks((prev) => {
+              if (prev.some((b) => b.id === newBookmark.id)) return prev
+              return [newBookmark, ...prev]
+            })
           } else if (payload.eventType === 'DELETE') {
+            // payload.old will now contain the ID correctly
             setBookmarks((prev) => prev.filter((b) => b.id !== payload.old.id))
           }
         }
@@ -51,41 +76,39 @@ export default function Home() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
-
-  const fetchBookmarks = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('bookmarks')
-      .select('*')
-      .eq('user_id', userId) // RLS handles this securely, but good for filtering
-      .order('created_at', { ascending: false })
-
-    if (data) setBookmarks(data)
-    setLoading(false)
-  }
+  }, [supabase, user]) 
 
   const handleAddBookmark = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title || !url || !user) return
 
-    // Optimistic update not needed because Realtime is fast, 
-    // but you could add it here for UX.
-    
-    const { error } = await supabase.from('bookmarks').insert({
-      title,
-      url,
-      user_id: user.id
-    })
+    const { data, error } = await supabase
+      .from('bookmarks')
+      .insert({
+        title,
+        url,
+        user_id: user.id
+      })
+      .select()
 
     if (error) {
       alert('Error adding bookmark')
     } else {
+      if (data) {
+        const newBookmark = data[0] as Bookmark
+        setBookmarks((prev) => {
+            if (prev.some(b => b.id === newBookmark.id)) return prev
+            return [newBookmark, ...prev]
+        })
+      }
       setTitle('')
       setUrl('')
     }
   }
 
   const handleDelete = async (id: string) => {
+    // Optimistic UI update
+    setBookmarks((prev) => prev.filter((b) => b.id !== id))
     await supabase.from('bookmarks').delete().eq('id', id)
   }
 
@@ -99,8 +122,6 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-10">
       <div className="mx-auto max-w-4xl">
-        
-        {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-gray-900">Smart Bookmarks</h1>
           <button 
@@ -111,7 +132,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Add Bookmark Form */}
         <div className="mb-8 rounded-lg bg-white p-6 shadow-sm border">
           <form onSubmit={handleAddBookmark} className="flex flex-col gap-4 sm:flex-row">
             <input
@@ -139,7 +159,6 @@ export default function Home() {
           </form>
         </div>
 
-        {/* Bookmarks List */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {bookmarks.map((bookmark) => (
             <div
@@ -147,7 +166,7 @@ export default function Home() {
               className="group relative flex flex-col justify-between rounded-lg bg-white p-5 shadow-sm border hover:shadow-md transition-shadow"
             >
               <div>
-                <h3 className="text-lg font-medium text-gray-900 truncate">
+                <h3 className="text-lg font-medium text-gray-900 truncate" title={bookmark.title}>
                   {bookmark.title}
                 </h3>
                 <a
@@ -177,7 +196,6 @@ export default function Home() {
             </p>
           )}
         </div>
-
       </div>
     </div>
   )

@@ -1,9 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-// 1. Change the function to be 'async'
 export async function createClient() {
-  // 2. Add 'await' before cookies()
+  // FIX: Await the cookies() promise because you are on Next.js 15
   const cookieStore = await cookies()
 
   return createServerClient(
